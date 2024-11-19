@@ -1,6 +1,6 @@
-# NTTP Server Mock
+# NNTP Server Mock
 
-NTTP Server Mock is a simple mock server for testing NTTP-based applications. It allows you to simulate NTTP server responses for various test scenarios.
+NNTP Server Mock is a simple mock server for testing NNTP-based applications. It allows you to simulate NNTP server responses for various test scenarios.
 
 ## Features
 
