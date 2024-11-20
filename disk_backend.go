@@ -23,8 +23,8 @@ type backendArticle struct {
 
 type DiskBackend struct {
 	db     *bbolt.Storage
-	mu     sync.Mutex
 	groups map[string]*Group
+	mu     sync.RWMutex
 }
 
 func NewDiskBackend() *DiskBackend {
@@ -74,9 +74,10 @@ func (b *DiskBackend) GetGroup(name string) (*Group, error) {
 }
 
 func (b *DiskBackend) GetArticle(group *Group, id string) (*Article, error) {
-	b.mu.Lock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	res, err := b.db.Get(id)
-	b.mu.Unlock()
 
 	if err != nil {
 		return nil, ErrInvalidMessageID
@@ -128,9 +129,14 @@ func (b *DiskBackend) Post(article *Article) error {
 		return err
 	}
 
+	b.mu.Lock()
 	if err := b.db.Set(article.MessageID(), artBuf.Bytes(), 0); err != nil {
 		return err
 	}
+
+	bWr = nil
+	artBuf = nil
+	b.mu.Unlock()
 
 	_ = b.increaseArticleCount()
 
@@ -146,6 +152,9 @@ func (b *DiskBackend) Stat(group *Group, id string) (string, string, error) {
 }
 
 func (b *DiskBackend) getArticleCount() int64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	artCount, err := b.db.Get(ArticleNumberKey)
 	if err != nil {
 		artCount = []byte("0")
@@ -156,13 +165,15 @@ func (b *DiskBackend) getArticleCount() int64 {
 }
 
 func (b *DiskBackend) increaseArticleCount() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	artCount, err := b.db.Get(ArticleNumberKey)
 	if err != nil {
 		artCount = []byte("0")
 	}
 
 	count, _ := strconv.ParseInt(string(artCount), 10, 64)
-
 	count++
 
 	if err := b.db.Set(ArticleNumberKey, []byte(strconv.FormatInt(count, 10)), 0); err != nil {
