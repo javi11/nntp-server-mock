@@ -10,6 +10,7 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type NNTPError struct {
@@ -128,7 +129,9 @@ func (s *Server) Process(nc net.Conn) {
 		if len(cmd) > 1 {
 			args = cmd[1:]
 		}
+		since := time.Now()
 		err = sess.dispatchCommand(cmd[0], args, c)
+		log.Printf("Command  %+v took %v", cmd, time.Since(since))
 		if err != nil {
 			_, isNNTPError := err.(*NNTPError)
 			switch {
@@ -452,8 +455,8 @@ func handlePost(args []string, s *session, c *textproto.Conn) error {
 	if err != nil {
 		return err
 	}
-	c.PrintfLine("240 article received OK")
-	return nil
+
+	return c.PrintfLine("240 article received OK")
 }
 
 func handleIHave(args []string, s *session, c *textproto.Conn) error {

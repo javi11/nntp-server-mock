@@ -77,14 +77,13 @@ func (b *DiskBackend) GetArticle(group *Group, id string) (*Article, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	res, err := b.db.Get(id)
-
-	if err != nil {
+	res, _ := b.db.Get(id)
+	if res == nil {
 		return nil, ErrInvalidMessageID
 	}
 
 	var art backendArticle
-	if err = json.NewDecoder(bytes.NewReader(res)).Decode(&art); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(res)).Decode(&art); err != nil {
 		return nil, err
 	}
 
@@ -131,12 +130,13 @@ func (b *DiskBackend) Post(article *Article) error {
 
 	b.mu.Lock()
 	if err := b.db.Set(article.MessageID(), artBuf.Bytes(), 0); err != nil {
+		b.mu.Unlock()
 		return err
 	}
+	b.mu.Unlock()
 
 	bWr = nil
 	artBuf = nil
-	b.mu.Unlock()
 
 	_ = b.increaseArticleCount()
 

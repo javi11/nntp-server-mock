@@ -25,7 +25,6 @@ func main() {
 	defer l.Close()
 
 	backend := NewDiskBackend()
-	defer backend.Close()
 	s := NewServer(backend)
 
 	fmt.Printf("Server listening on port %s\n", port)
