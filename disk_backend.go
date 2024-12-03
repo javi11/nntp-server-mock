@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/gob"
 	"io"
 	"net/textproto"
 	"strconv"
@@ -83,7 +83,7 @@ func (b *DiskBackend) GetArticle(group *Group, id string) (*Article, error) {
 	}
 
 	var art backendArticle
-	if err := json.NewDecoder(bytes.NewReader(res)).Decode(&art); err != nil {
+	if err := gob.NewDecoder(bytes.NewReader(res)).Decode(&art); err != nil {
 		return nil, err
 	}
 
@@ -117,8 +117,10 @@ func (b *DiskBackend) Post(article *Article) error {
 		return err
 	}
 
+	// Use a more efficient binary encoding instead of JSON
 	artBuf := bytes.NewBuffer(nil)
-	if err := json.NewEncoder(artBuf).Encode(backendArticle{
+	enc := gob.NewEncoder(artBuf)
+	if err := enc.Encode(backendArticle{
 		Id:     article.MessageID(),
 		Header: article.Header,
 		Body:   bWr.Bytes(),

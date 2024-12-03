@@ -4,20 +4,13 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 )
 
 const (
-	port        = ":1199" // Usenet default port is 119, but we use 1199 for testing
-	articlesDir = "./articles"
+	port = ":1199" // Usenet default port is 119, but we use 1199 for testing
 )
 
 func main() {
-	if err := os.MkdirAll(articlesDir, 0755); err != nil {
-		fmt.Printf("Error creating articles directory: %v\n", err)
-		return
-	}
-
 	a, err := net.ResolveTCPAddr("tcp", port)
 	maybefatal(err, "Error resolving listener: %v", err)
 	l, err := net.ListenTCP("tcp", a)
