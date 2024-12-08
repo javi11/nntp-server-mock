@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+
+	"github.com/javi11/nntp-server-mock/nntpserver"
 )
 
 const (
@@ -17,8 +19,8 @@ func main() {
 	maybefatal(err, "Error setting up listener: %v", err)
 	defer l.Close()
 
-	backend := NewDiskBackend()
-	s := NewServer(backend)
+	backend := nntpserver.NewDiskBackend()
+	s := nntpserver.NewServer(backend)
 
 	fmt.Printf("Server listening on port %s\n", port)
 

@@ -1,5 +1,5 @@
 // Package nntpserver provides everything you need for your own NNTP server.
-package main
+package nntpserver
 
 import (
 	"fmt"
