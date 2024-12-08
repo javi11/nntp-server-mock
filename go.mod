@@ -1,4 +1,4 @@
-module github.com/javi11/nttp-server-mock
+module github.com/javi11/nntp-server-mock
 
 go 1.23.0
 
