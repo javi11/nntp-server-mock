@@ -19,7 +19,10 @@ func main() {
 	maybefatal(err, "Error setting up listener: %v", err)
 	defer l.Close()
 
-	backend := nntpserver.NewDiskBackend()
+	backend := nntpserver.NewDiskBackend(
+		false,
+		"",
+	)
 	s := nntpserver.NewServer(backend)
 
 	fmt.Printf("Server listening on port %s\n", port)

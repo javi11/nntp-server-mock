@@ -5,13 +5,17 @@ import (
 	"encoding/gob"
 	"io"
 	"net/textproto"
+	"os"
 	"strconv"
 	"sync"
 
 	"github.com/gofiber/storage/bbolt"
 )
 
-const ArticleNumberKey = "article_number"
+const (
+	DefaultDBPath    = "nntp.db"
+	ArticleNumberKey = "article_number"
+)
 
 type backendArticle struct {
 	Id     string
@@ -22,12 +26,17 @@ type backendArticle struct {
 }
 
 type DiskBackend struct {
-	db     *bbolt.Storage
-	groups map[string]*Group
-	mu     sync.RWMutex
+	db           *bbolt.Storage
+	groups       map[string]*Group
+	mu           sync.RWMutex
+	cleanOnClose bool
+	dbPath       string
 }
 
-func NewDiskBackend() *DiskBackend {
+func NewDiskBackend(
+	cleanOnClose bool,
+	dbPath string,
+) *DiskBackend {
 	testGroup := Group{
 		Name:        "test",
 		Description: "A test group",
@@ -35,11 +44,21 @@ func NewDiskBackend() *DiskBackend {
 		Posting:     PostingPermitted,
 	}
 
-	store := bbolt.New()
+	if dbPath == "" {
+		dbPath = DefaultDBPath
+	}
+
+	store := bbolt.New(
+		bbolt.Config{
+			Database: dbPath,
+		},
+	)
 
 	return &DiskBackend{
-		db:     store,
-		groups: map[string]*Group{"test": &testGroup},
+		db:           store,
+		groups:       map[string]*Group{"test": &testGroup},
+		cleanOnClose: cleanOnClose,
+		dbPath:       dbPath,
 	}
 }
 
@@ -186,5 +205,10 @@ func (b *DiskBackend) increaseArticleCount() int64 {
 }
 
 func (b *DiskBackend) Close() error {
+	if b.cleanOnClose {
+		_ = b.db.Reset()
+		defer os.Remove(b.dbPath)
+	}
+
 	return b.db.Close()
 }
