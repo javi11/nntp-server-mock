@@ -10,8 +10,28 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// Config holds the server configuration options.
+type Config struct {
+	// Address to listen on (e.g., ":1199" or ":0" for random port)
+	Address string
+	// Path to database file (empty for default "nntp.db")
+	DBPath string
+	// Delete database on close (useful for tests)
+	CleanOnClose bool
+}
+
+// DefaultConfig returns a Config with sensible defaults.
+func DefaultConfig() Config {
+	return Config{
+		Address:      ":1199",
+		DBPath:       "",
+		CleanOnClose: false,
+	}
+}
 
 type NNTPError struct {
 	Code int
@@ -61,6 +81,12 @@ type Server struct {
 	Handlers map[string]Handler
 	Backend  Backend
 	group    *Group
+
+	// Server lifecycle fields
+	listener net.Listener
+	config   Config
+	done     chan struct{}
+	wg       sync.WaitGroup
 }
 
 func NewServer(backend Backend) *Server {
@@ -86,6 +112,129 @@ func NewServer(backend Backend) *Server {
 	rv.Handlers["stat"] = handleStat
 
 	return &rv
+}
+
+// NewServerWithConfig creates a new NNTP server with the given configuration.
+// This is the recommended constructor for embedding in tests.
+//
+// Example:
+//
+//	config := nntpserver.Config{
+//	    Address:      ":0",  // Random available port
+//	    DBPath:       filepath.Join(t.TempDir(), "test.db"),
+//	    CleanOnClose: true,
+//	}
+//	server, err := nntpserver.NewServerWithConfig(config)
+//	if err != nil {
+//	    t.Fatal(err)
+//	}
+//	defer server.Close()
+//	server.Start()
+//	addr := server.Addr().String()
+func NewServerWithConfig(config Config) (*Server, error) {
+	backend := NewDiskBackend(config.CleanOnClose, config.DBPath)
+
+	rv := &Server{
+		Handlers: make(map[string]Handler),
+		Backend:  backend,
+		config:   config,
+		done:     make(chan struct{}),
+	}
+	rv.Handlers[""] = handleDefault
+	rv.Handlers["quit"] = handleQuit
+	rv.Handlers["group"] = handleGroup
+	rv.Handlers["list"] = handleList
+	rv.Handlers["head"] = handleHead
+	rv.Handlers["body"] = handleBody
+	rv.Handlers["article"] = handleArticle
+	rv.Handlers["post"] = handlePost
+	rv.Handlers["ihave"] = handleIHave
+	rv.Handlers["capabilities"] = handleCap
+	rv.Handlers["mode"] = handleMode
+	rv.Handlers["authinfo"] = handleAuthInfo
+	rv.Handlers["newgroups"] = handleNewGroups
+	rv.Handlers["over"] = handleOver
+	rv.Handlers["xover"] = handleOver
+	rv.Handlers["stat"] = handleStat
+
+	return rv, nil
+}
+
+// Start begins accepting connections on the configured address.
+// This method is non-blocking; it spawns a goroutine to handle connections.
+// Use Stop() or Close() to shut down the server.
+func (s *Server) Start() error {
+	addr, err := net.ResolveTCPAddr("tcp", s.config.Address)
+	if err != nil {
+		return fmt.Errorf("resolving address: %w", err)
+	}
+
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listening: %w", err)
+	}
+	s.listener = listener
+
+	s.wg.Add(1)
+	go s.acceptLoop()
+
+	return nil
+}
+
+func (s *Server) acceptLoop() {
+	defer s.wg.Done()
+
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			select {
+			case <-s.done:
+				return
+			default:
+				log.Printf("Error accepting connection: %v", err)
+				continue
+			}
+		}
+
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.Process(conn)
+		}()
+	}
+}
+
+// Stop gracefully shuts down the server.
+// It closes the listener, waits for active connections to finish,
+// and closes the backend.
+func (s *Server) Stop() error {
+	close(s.done)
+
+	if s.listener != nil {
+		s.listener.Close()
+	}
+
+	s.wg.Wait()
+
+	if closer, ok := s.Backend.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
+// Close is an alias for Stop, implementing io.Closer.
+func (s *Server) Close() error {
+	return s.Stop()
+}
+
+// Addr returns the listener's network address.
+// This is useful when starting with ":0" to get the actual bound port.
+// Returns nil if the server hasn't been started.
+func (s *Server) Addr() net.Addr {
+	if s.listener == nil {
+		return nil
+	}
+	return s.listener.Addr()
 }
 
 func (e *NNTPError) Error() string {
@@ -262,8 +411,12 @@ func handleDefault(args []string, s *session, c *textproto.Conn) error {
 }
 
 func handleQuit(args []string, s *session, c *textproto.Conn) error {
-	c.PrintfLine("205 bye")
-	return io.EOF
+	err := c.PrintfLine("205 QUIT")
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func handleGroup(args []string, s *session, c *textproto.Conn) error {

@@ -31,6 +31,7 @@ type DiskBackend struct {
 	mu           sync.RWMutex
 	cleanOnClose bool
 	dbPath       string
+	articleCount int64 // cached in memory to avoid extra db write
 }
 
 func NewDiskBackend(
@@ -54,11 +55,23 @@ func NewDiskBackend(
 		},
 	)
 
+	// Disable fsync for faster writes (data may be lost on crash, but persists on normal restart)
+	store.Conn().NoSync = true
+	store.Conn().NoFreelistSync = true
+
+	// Load article count from disk
+	var articleCount int64
+	artCount, err := store.Get(ArticleNumberKey)
+	if err == nil && artCount != nil {
+		articleCount, _ = strconv.ParseInt(string(artCount), 10, 64)
+	}
+
 	return &DiskBackend{
 		db:           store,
 		groups:       map[string]*Group{"test": &testGroup},
 		cleanOnClose: cleanOnClose,
 		dbPath:       dbPath,
+		articleCount: articleCount,
 	}
 }
 
@@ -74,8 +87,13 @@ func (b *DiskBackend) ListGroups(max int) ([]*Group, error) {
 }
 
 func (b *DiskBackend) GetGroup(name string) (*Group, error) {
+	b.mu.RLock()
 	group := b.groups[name]
+	b.mu.RUnlock()
+
 	if group == nil {
+		b.mu.Lock()
+
 		b.groups[name] = &Group{
 			Name:        name,
 			Description: "A test group",
@@ -84,9 +102,14 @@ func (b *DiskBackend) GetGroup(name string) (*Group, error) {
 		}
 
 		group = b.groups[name]
+		b.mu.Unlock()
 	}
 
-	group.Count = b.getArticleCount()
+	count := b.getArticleCount()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	group.Count = count
 	group.High = group.Low + group.Count - 1
 
 	return group, nil
@@ -175,36 +198,23 @@ func (b *DiskBackend) Stat(group *Group, id string) (string, string, error) {
 func (b *DiskBackend) getArticleCount() int64 {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-
-	artCount, err := b.db.Get(ArticleNumberKey)
-	if err != nil {
-		artCount = []byte("0")
-	}
-
-	count, _ := strconv.ParseInt(string(artCount), 10, 64)
-	return count
+	return b.articleCount
 }
 
 func (b *DiskBackend) increaseArticleCount() int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
-	artCount, err := b.db.Get(ArticleNumberKey)
-	if err != nil {
-		artCount = []byte("0")
-	}
-
-	count, _ := strconv.ParseInt(string(artCount), 10, 64)
-	count++
-
-	if err := b.db.Set(ArticleNumberKey, []byte(strconv.FormatInt(count, 10)), 0); err != nil {
-		return 0
-	}
-
-	return count
+	b.articleCount++
+	return b.articleCount
 }
 
 func (b *DiskBackend) Close() error {
+	// Persist article count before closing
+	b.mu.RLock()
+	count := b.articleCount
+	b.mu.RUnlock()
+	_ = b.db.Set(ArticleNumberKey, []byte(strconv.FormatInt(count, 10)), 0)
+
 	if b.cleanOnClose {
 		_ = b.db.Reset()
 		defer os.Remove(b.dbPath)

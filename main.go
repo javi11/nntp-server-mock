@@ -3,40 +3,36 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/javi11/nntp-server-mock/nntpserver"
 )
 
-const (
-	port = ":1199" // Usenet default port is 119, but we use 1199 for testing
-)
-
 func main() {
-	a, err := net.ResolveTCPAddr("tcp", port)
-	maybefatal(err, "Error resolving listener: %v", err)
-	l, err := net.ListenTCP("tcp", a)
-	maybefatal(err, "Error setting up listener: %v", err)
-	defer l.Close()
-
-	backend := nntpserver.NewDiskBackend(
-		false,
-		"",
-	)
-	s := nntpserver.NewServer(backend)
-
-	fmt.Printf("Server listening on port %s\n", port)
-
-	for {
-		c, err := l.AcceptTCP()
-		maybefatal(err, "Error accepting connection: %v", err)
-		go s.Process(c)
+	config := nntpserver.Config{
+		Address:      ":1199",
+		DBPath:       "",
+		CleanOnClose: false,
 	}
 
-}
-
-func maybefatal(err error, f string, a ...interface{}) {
+	s, err := nntpserver.NewServerWithConfig(config)
 	if err != nil {
-		log.Fatalf(f, a...)
+		log.Fatalf("Error creating server: %v", err)
 	}
+	defer s.Close()
+
+	if err := s.Start(); err != nil {
+		log.Fatalf("Error starting server: %v", err)
+	}
+
+	fmt.Printf("Server listening on %s\n", s.Addr())
+
+	// Wait for interrupt signal for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	fmt.Println("\nShutting down...")
 }
