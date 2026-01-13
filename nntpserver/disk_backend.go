@@ -115,6 +115,9 @@ func (b *DiskBackend) GetGroup(name string) (*Group, error) {
 	return group, nil
 }
 
+// GetArticle retrieves an article by message-id or article number.
+// If group is nil, only message-id lookups are supported.
+// If group is provided, both message-id and article number lookups work.
 func (b *DiskBackend) GetArticle(group *Group, id string) (*Article, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -187,6 +190,8 @@ func (b *DiskBackend) Post(article *Article) error {
 	return nil
 }
 
+// Stat checks if an article exists and returns its number and id.
+// If group is nil, only message-id lookups are supported.
 func (b *DiskBackend) Stat(group *Group, id string) (string, string, error) {
 	if _, err := b.GetArticle(group, id); err != nil {
 		return "", "", err

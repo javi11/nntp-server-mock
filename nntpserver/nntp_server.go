@@ -437,6 +437,20 @@ func handleGroup(args []string, s *session, c *textproto.Conn) error {
 }
 
 func (s *session) getArticle(args []string) (*Article, error) {
+	// If no arguments, need a selected group
+	if len(args) == 0 {
+		if s.group == nil {
+			return nil, ErrNoGroupSelected
+		}
+		return s.backend.GetArticle(s.group, "")
+	}
+
+	// If argument is a message-id (starts with '<'), allow without group
+	if strings.HasPrefix(args[0], "<") {
+		return s.backend.GetArticle(nil, args[0])
+	}
+
+	// If argument is an article number, require a selected group
 	if s.group == nil {
 		return nil, ErrNoGroupSelected
 	}
@@ -444,6 +458,20 @@ func (s *session) getArticle(args []string) (*Article, error) {
 }
 
 func (s *session) stat(args []string) (string, string, error) {
+	// If no arguments, need a selected group
+	if len(args) == 0 {
+		if s.group == nil {
+			return "", "", ErrNoGroupSelected
+		}
+		return s.backend.Stat(s.group, "")
+	}
+
+	// If argument is a message-id (starts with '<'), allow without group
+	if strings.HasPrefix(args[0], "<") {
+		return s.backend.Stat(nil, args[0])
+	}
+
+	// If argument is an article number, require a selected group
 	if s.group == nil {
 		return "", "", ErrNoGroupSelected
 	}
